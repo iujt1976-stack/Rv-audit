@@ -1033,14 +1033,16 @@ async function runSearch(){
 }
 
 async function runClaudeSearch(query, resultsEl){
-  // Step 1: Retrieve relevant handbook chunks
-  const hbChunks=retrieveHandbookChunks(query,4);
-  const hbContext=hbChunks.length?hbChunks.map(c=>`[${c.chapter}]: ${c.text.substring(0,350)}`).join('\n\n---\n\n'):'No specific handbook sections retrieved.';
+  // Step 1: Retrieve relevant handbook chunks — these are PRIMARY sources
+  const hbChunks=retrieveHandbookChunks(query,6);
+  const hbContext=hbChunks.length
+    ? hbChunks.map((c,i)=>`[HANDBOOK CHUNK ${i+1} — ${c.chapter}]:\n${c.text.substring(0,500)}`).join('\n\n---\n\n')
+    : 'No handbook chunks retrieved.';
 
-  // Step 2: Pre-filter standards by likely area from query keywords
+  // Step 2: Pre-filter standards library by detected area
   const qLower=query.toLowerCase();
   const areaKeywords={
-    'Electrical':['120v','volt','wire','wiring','breaker','outlet','receptacle','gfci','panel','electrical','conductor','circuit','ground','neutral','shore power','generator','inverter','transfer','converter','amp','grommet','bushing','conduit','junction','romex','nmb','service'],
+    'Electrical':['120v','volt','wire','wiring','breaker','outlet','receptacle','gfci','panel','electrical','conductor','circuit','ground','neutral','shore power','generator','inverter','transfer','converter','amp','grommet','bushing','conduit','junction','romex','nmb','service','stud','framing','penetrat','pass-through','protected'],
     'LP':['lp','propane','gas','regulator','valve','burner','appliance','hose','fitting','leak','odorant','shutoff','flex','connector','btu'],
     'Plumbing':['water','drain','pipe','faucet','toilet','shower','sink','pump','tank','holding','fresh','grey','black','pex','copper','fitting','valve','pressure','vent','trap','slope'],
     'Fire Life Safety':['smoke','co','carbon monoxide','detector','alarm','extinguisher','egress','window','exit','escape','fire','sprinkler','heat'],
@@ -1048,7 +1050,6 @@ async function runClaudeSearch(query, resultsEl){
     'Vehicular':['axle','tire','wheel','brake','hitch','coupler','frame','chassis','suspension','bearing','lug','tongue'],
     'General Construction':['wall','ceiling','floor','roof','insulation','fastener','screw','stud','framing','structural','door','window','slide']
   };
-
   let filteredStandards=STANDARDS;
   let detectedArea=null;
   let maxScore=0;
@@ -1058,53 +1059,64 @@ async function runClaudeSearch(query, resultsEl){
   });
   if(detectedArea&&maxScore>0){
     filteredStandards=STANDARDS.filter(r=>r.area===detectedArea);
-    // If too narrow, include adjacent areas
-    if(filteredStandards.length<20) filteredStandards=STANDARDS;
+    if(filteredStandards.length<15)filteredStandards=STANDARDS;
   }
 
-  // Step 3: Build rich standards context (full rows, not compressed index)
+  // Step 3: Build standards context with full row data
   const stdContext=filteredStandards.map(r=>
-    `ID:${r.id} | ${r.system} > ${r.sub} | TITLE: ${r.title} | COMMON MISS: ${r.miss} | TRIGGER:${r.trigger} | RISK:${r.risk} | REF:${r.ref}`
+    `LIB-ID:${r.id} | ${r.system} > ${r.sub} | ${r.title} | MISS:${r.miss} | REF:${r.ref} | SOURCE:${r.source} | ${r.trigger} | Risk:${r.risk}`
   ).join('\n');
 
-  // Step 4: Build prompt with explicit translation step
-  const prompt=`You are a veteran RV manufacturing compliance inspector with 20+ years on the plant floor. You know exactly how plant workers and auditors describe things versus how the standards write them.
+  // Step 4: Dual-source prompt — Library AND Handbook are both primary
+  const prompt=`You are a veteran RV manufacturing compliance inspector with deep knowledge of NEC Article 551, NFPA 1192, CSA Z240, RVIA standards, and Forest River corporate standards.
 
-AUDITOR'S EXACT WORDS: "${query}"
+AUDITOR OBSERVATION: "${query}"
 
-YOUR JOB - TWO STEPS:
-STEP 1: Translate what the auditor is describing into standards language. Think about:
-- What component or system is involved?
-- What specific condition or violation did they observe?
-- What trade terms map to what standard terms? (e.g., "stud" = framing member, "going through" = penetration/pass-through, "not protected" = missing grommet/bushing/listed fitting)
-- What would a code inspector write on a violation report?
+YOU HAVE TWO AUTHORITATIVE SOURCES. Search BOTH. Either can be the primary citation.
 
-STEP 2: Match to the standards library below. Find the top 3 requirements that apply.
-
-${detectedArea?`DETECTED AREA: ${detectedArea} (filtered to most relevant standards)`:'ALL STANDARDS (no area detected)'}
-
-RELEVANT RVIA HANDBOOK CONTEXT:
+═══ SOURCE 1: RVIA HANDBOOK (interpretive text — extract actual code numbers) ═══
 ${hbContext}
 
-STANDARDS LIBRARY (ID | system > subsystem | TITLE | COMMON MISS | TRIGGER | RISK | REF):
+═══ SOURCE 2: STANDARDS LIBRARY (pre-coded requirements) ═══
 ${stdContext}
 
-Return ONLY a valid JSON array. No markdown. No explanation outside the JSON:
-[{"id": number, "reason": "one sentence — what the auditor saw and why this standard applies", "confidence": "HIGH|MEDIUM|LOW", "handbookRef": "chapter name if handbook was relevant, otherwise null"}]`;
+INSTRUCTIONS:
+1. First TRANSLATE the observation into standards language. What component? What violation? What trade term maps to what standard term? (e.g. "stud" = framing member, "going through" = penetration, "not protected" = missing grommet/bushing/listed fitting, "popped off" = improper termination, "loose" = unsecured conductor)
+
+2. Search BOTH sources. The Handbook often has requirements NOT in the Library.
+
+3. For each match, extract the EXACT code number:
+   - From Handbook text: look for patterns like "551.47(G)", "NEC 551.XX", "CSA 5.X.X", "NFPA 1192 §X", "ANSI/RVIA X.X", "RVEC-1 X.X"
+   - From Library: use the REF field directly
+   - From Corporate standards: use the ref name as-is
+
+4. Return up to 3 findings. A finding can come from the Library, the Handbook, or BOTH cross-referenced.
+
+5. Set trigger based on safety severity: STOP (safety-critical, unit cannot leave), ESCALATE (significant defect, needs correction), OBSERVE (noted, monitor)
+
+Respond ONLY with valid JSON array, no markdown:
+[{
+  "libId": number_or_null,
+  "codeNumber": "exact code e.g. NEC 551.47(G) or CSA 5.3.2.2(a) or RVIA Handbook E-55 or Corporate: Flexible LP Hose Routing",
+  "codeTitle": "descriptive title of the requirement",
+  "sourceType": "library|handbook|both",
+  "handbookChapter": "chapter name if handbook used, else null",
+  "reason": "one sentence: what the auditor saw and exactly why this code applies",
+  "confidence": "HIGH|MEDIUM|LOW",
+  "trigger": "STOP|ESCALATE|OBSERVE"
+}]`;
 
   const response=await fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',
     headers:{'Content-Type':'application/json','x-api-key':settings.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:600,messages:[{role:'user',content:prompt}]})
+    body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:800,messages:[{role:'user',content:prompt}]})
   });
   if(!response.ok){const e=await response.json();throw new Error(e.error?.message||'API error');}
   const data=await response.json();
-  const text=data.content[0].text.trim();
-  // Strip any accidental markdown
-  const clean=text.replace(/```json|```/g,'').trim();
-  const suggestions=JSON.parse(clean);
+  const text=data.content[0].text.trim().replace(/```json|```/g,'').trim();
+  const suggestions=JSON.parse(text);
   if(!suggestions.length){resultsEl.innerHTML='<div class="ai-no-match">No strong matches found. Try rephrasing or use the cascade browser below.</div>';return;}
-  renderSuggestions(suggestions,resultsEl,true);
+  renderDualSourceSuggestions(suggestions,resultsEl);
 }
 
 function runKeywordSearch(query,resultsEl){
@@ -1119,6 +1131,63 @@ function runKeywordSearch(query,resultsEl){
   }).filter(x=>x.score>1).sort((a,b)=>b.score-a.score).slice(0,3).map(x=>({id:x.id,confidence:x.score>8?'HIGH':x.score>4?'MEDIUM':'LOW',reason:null,handbookRef:null}));
   if(!scored.length){resultsEl.innerHTML='<div class="ai-no-match">No strong matches. Try different keywords or use the cascade browser below.</div>';return;}
   renderSuggestions(scored,resultsEl,false);
+}
+
+function renderDualSourceSuggestions(suggestions,resultsEl){
+  const cc={'HIGH':'#86efac','MEDIUM':'#fcd34d','LOW':'#fca5a5'};
+  const srcIcon={'library':'📋','handbook':'📖','both':'📋📖'};
+  const srcLabel={'library':'Standards Library','handbook':'RVIA Handbook','both':'Library + Handbook'};
+  resultsEl.innerHTML=suggestions.map(s=>{
+    const row=s.libId!=null?STANDARDS.find(r=>r.id===s.libId):null;
+    const trigger=s.trigger||(row?row.trigger:'OBSERVE');
+    const tc=trigger==='STOP'?'#fca5a5':trigger==='ESCALATE'?'#fcd34d':'#86efac';
+    const codeNum=s.codeNumber||'—';
+    return`<div class="ai-suggestion" onclick="confirmDualCode(${JSON.stringify(s).replace(/"/g,'&quot;')})">
+      <div class="ai-suggestion-title">${s.codeTitle||s.codeNumber}</div>
+      <div style="font-size:13px;font-weight:800;color:#fbbf24;margin-top:5px;font-family:monospace;letter-spacing:.3px;">${srcIcon[s.sourceType]||'📋'} ${codeNum}</div>
+      <div class="ai-suggestion-meta" style="margin-top:3px;">
+        ${srcLabel[s.sourceType]||s.sourceType}
+        ${s.handbookChapter?' · '+s.handbookChapter:''}
+        · <span style="font-weight:800;color:${tc}">${trigger}</span>
+        <span class="ai-confidence" style="background:${cc[s.confidence]||'rgba(255,255,255,.15)'};color:#111;margin-left:6px;">${s.confidence}</span>
+      </div>
+      ${s.reason?`<div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:5px;font-style:italic;border-top:1px solid rgba(255,255,255,.1);padding-top:5px;">${s.reason}</div>`:''}
+      ${row&&row.miss?`<div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:3px;">⚠ Common miss: ${row.miss}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function confirmDualCode(sObj){
+  const s=typeof sObj==='string'?JSON.parse(sObj.replace(/&quot;/g,'"')):sObj;
+  const row=s.libId!=null?STANDARDS.find(r=>r.id===s.libId):null;
+  selectedCode={
+    id: s.libId,
+    title: s.codeTitle||s.codeNumber,
+    ref: s.codeNumber,
+    source: s.sourceType==='handbook'?'RVIA Handbook':s.sourceType==='both'?'Library + Handbook':row?.source||'Standards Library',
+    system: row?.system||s.handbookChapter||'General',
+    trigger: s.trigger||(row?.trigger)||'OBSERVE',
+    risk: row?.risk||0,
+    domain: row?.domain||'RVIA',
+    miss: row?.miss||null,
+    report: row?.report||null,
+    sourceType: s.sourceType
+  };
+  const srcIcon={'library':'📋','handbook':'📖','both':'📋📖'};
+  document.getElementById('cc-title').textContent=selectedCode.title;
+  document.getElementById('cc-meta').textContent=`${selectedCode.system} · ${selectedCode.source}`;
+  document.getElementById('cc-badges').innerHTML=`
+    <span class="code-confirmed-badge" style="background:rgba(251,191,36,.25);color:#fbbf24;font-family:monospace;font-size:12px;padding:3px 10px;">${srcIcon[s.sourceType]||'📋'} ${selectedCode.ref}</span>
+    <span class="code-confirmed-badge" style="background:${selectedCode.trigger==='STOP'?'rgba(220,38,38,.4)':selectedCode.trigger==='ESCALATE'?'rgba(217,119,6,.4)':'rgba(22,163,74,.4)'}">${selectedCode.trigger}</span>
+    ${selectedCode.risk?`<span class="code-confirmed-badge">Risk ${selectedCode.risk}/5</span>`:''}
+    <span class="code-confirmed-badge">${selectedCode.domain}</span>`;
+  document.getElementById('code-confirmed').style.display='flex';
+  document.getElementById('code-finder-section').style.display='none';
+  const notesEl=document.getElementById('finding-notes');
+  if(!notesEl.value&&selectedCode.report)notesEl.value=selectedCode.report;
+  document.getElementById('finding-miss-hint').textContent=selectedCode.miss?`⚠ Common miss: ${selectedCode.miss}`:'';
+  notesEl.scrollIntoView({behavior:'smooth',block:'center'});
+  showToast('✓ Code selected');
 }
 
 function renderSuggestions(suggestions,resultsEl,isAI){
