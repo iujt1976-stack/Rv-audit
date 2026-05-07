@@ -1127,12 +1127,14 @@ function renderSuggestions(suggestions,resultsEl,isAI){
     const row=STANDARDS.find(r=>r.id===s.id);
     if(!row)return'';
     const tc=row.trigger==='STOP'?'#fca5a5':row.trigger==='ESCALATE'?'#fcd34d':'#86efac';
+    const refDisplay=row.ref&&row.ref!==row.title?row.ref:'—';
     return`<div class="ai-suggestion" onclick="confirmCode(${row.id})">
       <div class="ai-suggestion-title">${row.title}<span class="ai-confidence" style="background:${cc[s.confidence]||'rgba(255,255,255,.15)'};color:#111;">${s.confidence}</span></div>
-      <div class="ai-suggestion-meta">${row.system} · <span style="font-family:monospace">${row.ref||row.domain}</span> · <span style="font-weight:800;color:${tc}">${row.trigger}</span> · Risk ${row.risk}/5</div>
-      ${s.reason?`<div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:4px;font-style:italic;">${s.reason}</div>`:''}
-      ${s.handbookRef?`<div class="ai-handbook-ref">📖 ${s.handbookRef}</div>`:''}
-      ${row.miss?`<div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:2px;">Common miss: ${row.miss}</div>`:''}
+      <div style="font-size:13px;font-weight:800;color:#fbbf24;margin-top:5px;font-family:monospace;letter-spacing:.3px;">📋 ${refDisplay}</div>
+      <div class="ai-suggestion-meta" style="margin-top:3px;">${row.source} · ${row.domain} · <span style="font-weight:800;color:${tc}">${row.trigger}</span> · Risk ${row.risk}/5</div>
+      ${s.reason?`<div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:5px;font-style:italic;border-top:1px solid rgba(255,255,255,.1);padding-top:5px;">${s.reason}</div>`:''}
+      ${s.handbookRef?`<div class="ai-handbook-ref" style="margin-top:4px;">📖 ${s.handbookRef}</div>`:''}
+      ${row.miss?`<div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:3px;">⚠ Common miss: ${row.miss}</div>`:''}
     </div>`;
   }).join('');
 }
@@ -1142,8 +1144,13 @@ function confirmCode(id){
   if(!row)return;
   selectedCode=row;
   document.getElementById('cc-title').textContent=row.title;
-  document.getElementById('cc-meta').textContent=`${row.system} · ${row.ref||row.domain} · ${row.source}`;
-  document.getElementById('cc-badges').innerHTML=`<span class="code-confirmed-badge" style="background:${row.trigger==='STOP'?'rgba(220,38,38,.4)':row.trigger==='ESCALATE'?'rgba(217,119,6,.4)':'rgba(22,163,74,.4)'}">${row.trigger}</span><span class="code-confirmed-badge">Risk ${row.risk}/5</span><span class="code-confirmed-badge">${row.domain}</span>`;
+  document.getElementById('cc-meta').textContent=`${row.system} · ${row.source}`;
+  const refDisplay=row.ref&&row.ref!==row.title?row.ref:'See source';
+  document.getElementById('cc-badges').innerHTML=`
+    <span class="code-confirmed-badge" style="background:rgba(251,191,36,.25);color:#fbbf24;font-family:monospace;font-size:12px;padding:3px 10px;">📋 ${refDisplay}</span>
+    <span class="code-confirmed-badge" style="background:${row.trigger==='STOP'?'rgba(220,38,38,.4)':row.trigger==='ESCALATE'?'rgba(217,119,6,.4)':'rgba(22,163,74,.4)'}">${row.trigger}</span>
+    <span class="code-confirmed-badge">Risk ${row.risk}/5</span>
+    <span class="code-confirmed-badge">${row.domain}</span>`;
   document.getElementById('code-confirmed').style.display='flex';
   document.getElementById('code-finder-section').style.display='none';
   const notesEl=document.getElementById('finding-notes');
@@ -1251,7 +1258,7 @@ function saveFinding(){
   const notes=document.getElementById('finding-notes').value.trim();
   if(!notes){showToast('Observation notes are required');return;}
   if(!selectedStatus){showToast('Select a status');return;}
-  const f={id:editingIdx>=0?currentAudit.findings[editingIdx].id:Date.now().toString(),notes,status:selectedStatus,owner:document.getElementById('finding-owner').value,due:document.getElementById('finding-due').value,caption:document.getElementById('finding-caption').value,photo:currentPhoto,codeId:selectedCode?.id,codeTitle:selectedCode?.title||null,codeRef:selectedCode?.ref||null,system:selectedCode?.system||'Unclassified',trigger:selectedCode?.trigger||'OBSERVE',risk:selectedCode?.risk||0,domain:selectedCode?.domain||null,created:new Date().toISOString()};
+  const f={id:editingIdx>=0?currentAudit.findings[editingIdx].id:Date.now().toString(),notes,status:selectedStatus,owner:document.getElementById('finding-owner').value,due:document.getElementById('finding-due').value,caption:document.getElementById('finding-caption').value,photo:currentPhoto,codeId:selectedCode?.id,codeTitle:selectedCode?.title||null,codeRef:selectedCode?.ref||null,codeSource:selectedCode?.source||null,system:selectedCode?.system||'Unclassified',trigger:selectedCode?.trigger||'OBSERVE',risk:selectedCode?.risk||0,domain:selectedCode?.domain||null,created:new Date().toISOString()};
   if(editingIdx>=0)currentAudit.findings[editingIdx]=f;else currentAudit.findings.push(f);
   saveDraftSilent();closeModal('modal-finding');renderFindings();updateStats();
   showToast(editingIdx>=0?'✓ Finding updated':'✓ Finding saved');
@@ -1263,7 +1270,7 @@ function renderFindings(){
   if(!currentAudit)return;
   const el=document.getElementById('findings-list');
   if(!currentAudit.findings.length){el.innerHTML='<div class="empty-state"><div class="empty-icon">🔍</div><div>No findings yet</div><div style="font-size:13px;margin-top:4px;">Tap Add Finding to begin</div></div>';return;}
-  el.innerHTML=currentAudit.findings.map((f,i)=>`<div class="finding-item ${f.trigger}"><div class="finding-header"><div style="flex:1;"><div class="finding-title">${f.codeTitle||'Unclassified observation'}</div><div class="finding-meta">${f.system}${f.codeRef?' · '+f.codeRef:''}</div></div><span class="trigger-badge ${f.trigger||'unclassified'}">${f.trigger||'UNCLASS'}</span></div><div style="font-size:13px;color:var(--gray-700);margin-top:8px;">${f.notes.substring(0,120)}${f.notes.length>120?'…':''}</div>${f.photo?'<div style="margin-top:6px;font-size:12px;">📷 Photo attached</div>':''}<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;"><span class="trigger-badge ${f.status==='Pass'?'OBSERVE':f.status==='Fail'?'STOP':'ESCALATE'}">${f.status}</span><div style="display:flex;gap:6px;"><button class="btn-sm blue" onclick="showAddFindingModal(${i})">Edit</button><button class="btn-sm red" onclick="deleteFinding(${i})">Delete</button></div></div></div>`).join('');
+  el.innerHTML=currentAudit.findings.map((f,i)=>`<div class="finding-item ${f.trigger}"><div class="finding-header"><div style="flex:1;"><div class="finding-title">${f.codeTitle||'Unclassified observation'}</div><div class="finding-meta">${f.system}</div>${f.codeRef?`<div style="margin-top:3px;"><span style="font-family:monospace;font-size:11px;font-weight:700;background:var(--blue-light);color:var(--blue);padding:2px 7px;border-radius:4px;">📋 ${f.codeRef}</span></div>`:'<div style="margin-top:2px;font-size:11px;color:var(--gray-400);">No code</div>'}</div><span class="trigger-badge ${f.trigger||'unclassified'}">${f.trigger||'UNCLASS'}</span></div><div style="font-size:13px;color:var(--gray-700);margin-top:8px;">${f.notes.substring(0,120)}${f.notes.length>120?'…':''}</div>${f.photo?'<div style="margin-top:6px;font-size:12px;">📷 Photo attached</div>':''}<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;"><span class="trigger-badge ${f.status==='Pass'?'OBSERVE':f.status==='Fail'?'STOP':'ESCALATE'}">${f.status}</span><div style="display:flex;gap:6px;"><button class="btn-sm blue" onclick="showAddFindingModal(${i})">Edit</button><button class="btn-sm red" onclick="deleteFinding(${i})">Delete</button></div></div></div>`).join('');
 }
 
 function updateStats(){
@@ -1328,7 +1335,7 @@ function renderReview(){
   document.getElementById('rev-stop').textContent=f.filter(x=>x.trigger==='STOP').length;
   document.getElementById('rev-esc').textContent=f.filter(x=>x.trigger==='ESCALATE').length;
   document.getElementById('rev-obs').textContent=f.filter(x=>!x.trigger||x.trigger==='OBSERVE').length;
-  document.getElementById('review-findings').innerHTML=f.length?f.map((f,i)=>`<div class="finding-item ${f.trigger}"><div class="finding-header"><div style="flex:1;"><div class="finding-title">${i+1}. ${f.codeTitle||'Unclassified observation'}</div>${f.codeRef?`<span class="code-chip">${f.codeRef}</span>`:''}<div class="finding-meta">${f.system}</div></div><div style="text-align:right;"><span class="trigger-badge ${f.trigger||'unclassified'}">${f.trigger||'UNCLASS'}</span>${f.risk?`<div style="margin-top:4px;"><span class="risk-pill">Risk ${f.risk}</span></div>`:''}</div></div><div style="font-size:13px;color:var(--gray-700);margin-top:8px;">${f.notes}</div>${f.photo?`<img src="${f.photo}" style="width:100%;max-height:160px;object-fit:cover;border-radius:6px;margin-top:8px;">`:''} ${f.caption?`<div style="font-size:12px;color:var(--gray-500);margin-top:4px;font-style:italic;">📷 ${f.caption}</div>`:''}<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;"><span class="trigger-badge ${f.status==='Pass'?'OBSERVE':f.status==='Fail'?'STOP':'ESCALATE'}">${f.status}</span><span style="font-size:12px;color:var(--gray-500);">${f.owner?'Owner: '+f.owner:''} ${f.due?'· Due: '+f.due:''}</span></div></div>`).join(''):'<div class="empty-state"><div>No findings recorded</div></div>';
+  document.getElementById('review-findings').innerHTML=f.length?f.map((f,i)=>`<div class="finding-item ${f.trigger}"><div class="finding-header"><div style="flex:1;"><div class="finding-title">${i+1}. ${f.codeTitle||'Unclassified observation'}</div>${f.codeRef?`<div style="margin:4px 0;"><span class="code-chip" style="font-size:12px;padding:3px 10px;">📋 ${f.codeRef}</span> <span style="font-size:11px;color:var(--gray-500);">${f.codeSource||''}</span></div>`:'<div style="margin:4px 0;font-size:11px;color:var(--gray-500);">No code — freeform observation</div>'}<div class="finding-meta">${f.system}</div></div><div style="text-align:right;"><span class="trigger-badge ${f.trigger||'unclassified'}">${f.trigger||'UNCLASS'}</span>${f.risk?`<div style="margin-top:4px;"><span class="risk-pill">Risk ${f.risk}</span></div>`:''}</div></div><div style="font-size:13px;color:var(--gray-700);margin-top:8px;">${f.notes}</div>${f.photo?`<img src="${f.photo}" style="width:100%;max-height:160px;object-fit:cover;border-radius:6px;margin-top:8px;">`:''} ${f.caption?`<div style="font-size:12px;color:var(--gray-500);margin-top:4px;font-style:italic;">📷 ${f.caption}</div>`:''}<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;"><span class="trigger-badge ${f.status==='Pass'?'OBSERVE':f.status==='Fail'?'STOP':'ESCALATE'}">${f.status}</span><span style="font-size:12px;color:var(--gray-500);">${f.owner?'Owner: '+f.owner:''} ${f.due?'· Due: '+f.due:''}</span></div></div>`).join(''):'<div class="empty-state"><div>No findings recorded</div></div>';
 }
 
 async function submitAudit(){
