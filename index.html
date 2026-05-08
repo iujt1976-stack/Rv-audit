@@ -1139,11 +1139,13 @@ INSTRUCTIONS:
 Return ONLY valid JSON, no markdown:
 [{
   "libId": number_or_null,
-  "codeNumber": "exact citation e.g. NEC 551.47(G) or FRC: Generator Safety or RVIA Handbook E-55",
-  "codeTitle": "plain English title of the requirement",
+  "codeNumber": "exact citation e.g. NEC 551.47(G) or FRC: Flexible LP Hose Pinch Point Protection",
+  "codeTitle": "short title of the subsection e.g. Protected or Wiring Methods — Physical Damage",
+  "requirementText": "the actual requirement text verbatim or close paraphrase from the source — what the standard REQUIRES. e.g. Conductors passing through holes in metal framing members shall be protected by listed grommets or bushings securely fastened in the opening prior to installation of the cable.",
+  "complianceCondition": "what compliance looks like — what must be done to meet this requirement. e.g. Install a listed grommet or bushing at each metal framing penetration before running cable through. Grommets must be securely fastened prior to cable installation.",
   "sourceType": "corporate|handbook|library|both",
-  "sourceName": "e.g. Forest River Corporate Standards or RVIA Handbook — Electrical Systems or RVIA/NEC",
-  "reason": "one sentence: what the auditor saw and exactly which requirement it violates and why",
+  "sourceName": "e.g. RVIA Handbook — Electrical Systems (NEC 551) or Forest River Corporate Standards",
+  "reason": "one sentence: plain language description of the specific violation observed",
   "confidence": "HIGH|MEDIUM|LOW",
   "trigger": "STOP|ESCALATE|OBSERVE"
 }]`;
@@ -1206,8 +1208,9 @@ function renderDualSourceSuggestions(suggestions,resultsEl){
         · <span style="font-weight:800;color:${tc}">${trigger}</span>
         <span class="ai-confidence" style="background:${cc[s.confidence]||'rgba(255,255,255,.15)'};color:#111;margin-left:6px;">${s.confidence}</span>
       </div>
-      ${s.reason?`<div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:5px;font-style:italic;border-top:1px solid rgba(255,255,255,.1);padding-top:5px;">${s.reason}</div>`:''}
-      ${row&&row.miss?`<div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:3px;">⚠ Common miss: ${row.miss}</div>`:''}
+      ${s.reason?`<div style="font-size:11px;color:rgba(255,255,255,.65);margin-top:5px;border-top:1px solid rgba(255,255,255,.1);padding-top:5px;">${s.reason}</div>`:''}
+      ${s.requirementText?`<div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:4px;font-style:italic;line-height:1.4;">📜 ${s.requirementText.substring(0,120)}${s.requirementText.length>120?'…':''}</div>`:''}
+      ${row&&row.miss?`<div style="font-size:11px;color:rgba(255,255,255,.35);margin-top:3px;">⚠ Common miss: ${row.miss}</div>`:''}
     </div>`;
   }).join('');
 }
@@ -1226,7 +1229,9 @@ function confirmDualCode(sObj){
     domain: row?.domain||'RVIA',
     miss: row?.miss||null,
     report: row?.report||null,
-    sourceType: s.sourceType
+    sourceType: s.sourceType,
+    requirementText: s.requirementText||row?.req||null,
+    complianceCondition: s.complianceCondition||null
   };
   const srcIcon={'corporate':'🏭','library':'📋','handbook':'📖','both':'📋📖','corporate+handbook':'🏭📖','corporate+library':'🏭📋'};
   document.getElementById('cc-title').textContent=selectedCode.title;
@@ -1382,7 +1387,7 @@ function saveFinding(){
   const notes=document.getElementById('finding-notes').value.trim();
   if(!notes){showToast('Observation notes are required');return;}
   if(!selectedStatus){showToast('Select a status');return;}
-  const f={id:editingIdx>=0?currentAudit.findings[editingIdx].id:Date.now().toString(),notes,status:selectedStatus,owner:document.getElementById('finding-owner').value,due:document.getElementById('finding-due').value,caption:document.getElementById('finding-caption').value,photo:currentPhoto,codeId:selectedCode?.id,codeTitle:selectedCode?.title||null,codeRef:selectedCode?.ref||null,codeSource:selectedCode?.source||null,system:selectedCode?.system||'Unclassified',trigger:selectedCode?.trigger||'OBSERVE',risk:selectedCode?.risk||0,domain:selectedCode?.domain||null,created:new Date().toISOString()};
+  const f={id:editingIdx>=0?currentAudit.findings[editingIdx].id:Date.now().toString(),notes,status:selectedStatus,owner:document.getElementById('finding-owner').value,due:document.getElementById('finding-due').value,caption:document.getElementById('finding-caption').value,photo:currentPhoto,codeId:selectedCode?.id,codeTitle:selectedCode?.title||null,codeRef:selectedCode?.ref||null,codeSource:selectedCode?.source||null,system:selectedCode?.system||'Unclassified',trigger:selectedCode?.trigger||'OBSERVE',risk:selectedCode?.risk||0,domain:selectedCode?.domain||null,requirementText:selectedCode?.requirementText||null,complianceCondition:selectedCode?.complianceCondition||null,created:new Date().toISOString()};
   if(editingIdx>=0)currentAudit.findings[editingIdx]=f;else currentAudit.findings.push(f);
   saveDraftSilent();closeModal('modal-finding');renderFindings();updateStats();
   showToast(editingIdx>=0?'✓ Finding updated':'✓ Finding saved');
@@ -1394,7 +1399,7 @@ function renderFindings(){
   if(!currentAudit)return;
   const el=document.getElementById('findings-list');
   if(!currentAudit.findings.length){el.innerHTML='<div class="empty-state"><div class="empty-icon">🔍</div><div>No findings yet</div><div style="font-size:13px;margin-top:4px;">Tap Add Finding to begin</div></div>';return;}
-  el.innerHTML=currentAudit.findings.map((f,i)=>`<div class="finding-item ${f.trigger}"><div class="finding-header"><div style="flex:1;"><div class="finding-title">${f.codeTitle||'Unclassified observation'}</div><div class="finding-meta">${f.system}</div>${f.codeRef?`<div style="margin-top:3px;"><span style="font-family:monospace;font-size:11px;font-weight:700;background:var(--blue-light);color:var(--blue);padding:2px 7px;border-radius:4px;">📋 ${f.codeRef}</span></div>`:'<div style="margin-top:2px;font-size:11px;color:var(--gray-400);">No code</div>'}</div><span class="trigger-badge ${f.trigger||'unclassified'}">${f.trigger||'UNCLASS'}</span></div><div style="font-size:13px;color:var(--gray-700);margin-top:8px;">${f.notes.substring(0,120)}${f.notes.length>120?'…':''}</div>${f.photo?'<div style="margin-top:6px;font-size:12px;">📷 Photo attached</div>':''}<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;"><span class="trigger-badge ${f.status==='Pass'?'OBSERVE':f.status==='Fail'?'STOP':'ESCALATE'}">${f.status}</span><div style="display:flex;gap:6px;"><button class="btn-sm blue" onclick="showAddFindingModal(${i})">Edit</button><button class="btn-sm red" onclick="deleteFinding(${i})">Delete</button></div></div></div>`).join('');
+  el.innerHTML=currentAudit.findings.map((f,i)=>`<div class="finding-item ${f.trigger}"><div class="finding-header"><div style="flex:1;"><div class="finding-title">${f.codeTitle||'Unclassified observation'}</div><div class="finding-meta">${f.system}</div>${f.codeRef?`<div style="margin-top:3px;"><span style="font-family:monospace;font-size:11px;font-weight:700;background:var(--blue-light);color:var(--blue);padding:2px 7px;border-radius:4px;">📋 ${f.codeRef}</span></div>`:'<div style="margin-top:2px;font-size:11px;color:var(--gray-400);">No code</div>'}</div><span class="trigger-badge ${f.trigger||'unclassified'}">${f.trigger||'UNCLASS'}</span></div><div style="font-size:13px;color:var(--gray-700);margin-top:8px;">${f.notes.substring(0,120)}${f.notes.length>120?'…':''}</div>${f.requirementText?`<div style="font-size:11px;color:var(--gray-500);margin-top:4px;font-style:italic;line-height:1.4;">📜 ${f.requirementText.substring(0,90)}…</div>`:""}${f.photo?'<div style="margin-top:6px;font-size:12px;">📷 Photo attached</div>':''}<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;"><span class="trigger-badge ${f.status==='Pass'?'OBSERVE':f.status==='Fail'?'STOP':'ESCALATE'}">${f.status}</span><div style="display:flex;gap:6px;"><button class="btn-sm blue" onclick="showAddFindingModal(${i})">Edit</button><button class="btn-sm red" onclick="deleteFinding(${i})">Delete</button></div></div></div>`).join('');
 }
 
 function updateStats(){
@@ -1459,7 +1464,9 @@ function renderReview(){
   document.getElementById('rev-stop').textContent=f.filter(x=>x.trigger==='STOP').length;
   document.getElementById('rev-esc').textContent=f.filter(x=>x.trigger==='ESCALATE').length;
   document.getElementById('rev-obs').textContent=f.filter(x=>!x.trigger||x.trigger==='OBSERVE').length;
-  document.getElementById('review-findings').innerHTML=f.length?f.map((f,i)=>`<div class="finding-item ${f.trigger}"><div class="finding-header"><div style="flex:1;"><div class="finding-title">${i+1}. ${f.codeTitle||'Unclassified observation'}</div>${f.codeRef?`<div style="margin:4px 0;"><span class="code-chip" style="font-size:12px;padding:3px 10px;">📋 ${f.codeRef}</span> <span style="font-size:11px;color:var(--gray-500);">${f.codeSource||''}</span></div>`:'<div style="margin:4px 0;font-size:11px;color:var(--gray-500);">No code — freeform observation</div>'}<div class="finding-meta">${f.system}</div></div><div style="text-align:right;"><span class="trigger-badge ${f.trigger||'unclassified'}">${f.trigger||'UNCLASS'}</span>${f.risk?`<div style="margin-top:4px;"><span class="risk-pill">Risk ${f.risk}</span></div>`:''}</div></div><div style="font-size:13px;color:var(--gray-700);margin-top:8px;">${f.notes}</div>${f.photo?`<img src="${f.photo}" style="width:100%;max-height:160px;object-fit:cover;border-radius:6px;margin-top:8px;">`:''} ${f.caption?`<div style="font-size:12px;color:var(--gray-500);margin-top:4px;font-style:italic;">📷 ${f.caption}</div>`:''}<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;"><span class="trigger-badge ${f.status==='Pass'?'OBSERVE':f.status==='Fail'?'STOP':'ESCALATE'}">${f.status}</span><span style="font-size:12px;color:var(--gray-500);">${f.owner?'Owner: '+f.owner:''} ${f.due?'· Due: '+f.due:''}</span></div></div>`).join(''):'<div class="empty-state"><div>No findings recorded</div></div>';
+  document.getElementById('review-findings').innerHTML=f.length?f.map((f,i)=>`<div class="finding-item ${f.trigger}"><div class="finding-header"><div style="flex:1;"><div class="finding-title">${i+1}. ${f.codeTitle||'Unclassified observation'}</div>${f.codeRef?`<div style="margin:4px 0;"><span class="code-chip" style="font-size:12px;padding:3px 10px;">📋 ${f.codeRef}</span> <span style="font-size:11px;color:var(--gray-500);">${f.codeSource||''}</span></div>`:'<div style="margin:4px 0;font-size:11px;color:var(--gray-500);">No code — freeform observation</div>'}<div class="finding-meta">${f.system}</div></div><div style="text-align:right;"><span class="trigger-badge ${f.trigger||'unclassified'}">${f.trigger||'UNCLASS'}</span>${f.risk?`<div style="margin-top:4px;"><span class="risk-pill">Risk ${f.risk}</span></div>`:''}</div></div><div style="font-size:13px;color:var(--gray-700);margin-top:8px;">${f.notes}</div>
+      ${f.requirementText?`<div style="margin-top:10px;background:var(--gray-50);border-left:3px solid var(--blue);border-radius:0 6px 6px 0;padding:10px 12px;"><div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">📜 Requirement</div><div style="font-size:13px;color:var(--gray-700);line-height:1.5;">${f.requirementText}</div></div>`:''}
+      ${f.complianceCondition?`<div style="margin-top:8px;background:var(--green-light);border-left:3px solid var(--green);border-radius:0 6px 6px 0;padding:10px 12px;"><div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">✓ Condition for Compliance</div><div style="font-size:13px;color:var(--gray-700);line-height:1.5;">${f.complianceCondition}</div></div>`:''}${f.photo?`<img src="${f.photo}" style="width:100%;max-height:160px;object-fit:cover;border-radius:6px;margin-top:8px;">`:''} ${f.caption?`<div style="font-size:12px;color:var(--gray-500);margin-top:4px;font-style:italic;">📷 ${f.caption}</div>`:''}<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;"><span class="trigger-badge ${f.status==='Pass'?'OBSERVE':f.status==='Fail'?'STOP':'ESCALATE'}">${f.status}</span><span style="font-size:12px;color:var(--gray-500);">${f.owner?'Owner: '+f.owner:''} ${f.due?'· Due: '+f.due:''}</span></div></div>`).join(''):'<div class="empty-state"><div>No findings recorded</div></div>';
 }
 
 async function submitAudit(){
